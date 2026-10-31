@@ -252,7 +252,7 @@ BEGIN
 		PRINT 'Error Message' + ERROR_MESSAGE();
 		PRINT 'Error Message' + CAST (ERROR_NUMBER() AS NVARCHAR);
 		PRINT 'Error Message' + CAST (ERROR_STATE() AS NVARCHAR);
-		PRINT '=========================================='
+		PRINT '==========================================';
 		THROW; -- re-raise, so the caller (and CI) sees the load failed
 	END CATCH
 END
