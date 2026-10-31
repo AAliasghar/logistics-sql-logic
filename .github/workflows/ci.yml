@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  pipeline:
+    name: Run the warehouse in SQL Server
+    runs-on: ubuntu-latest
+    env:
+      SA_PASSWORD: CiOnly_Passw0rd!   # throwaway container, only exists during this job
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Start SQL Server 2022
+        run: |
+          docker run -d --name mssql \
+            -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD="$SA_PASSWORD" \
+            -v "$GITHUB_WORKSPACE:/repo:ro" \
+            mcr.microsoft.com/mssql/server:2022-latest
+          for i in $(seq 1 30); do
+            if docker exec mssql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$SA_PASSWORD" -C -Q "SELECT 1" > /dev/null 2>&1; then
+              echo "SQL Server is ready"; exit 0
+            fi
+            sleep 2
+          done
+          docker logs mssql; exit 1
+
+      - name: Build bronze, silver and gold
+        run: |
+          sql() { docker exec mssql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$SA_PASSWORD" -C -b "$@"; }
+          sql -i /repo/scripts/init_database.sql
+          sql -d DataWarehouse -i /repo/scripts/bronze/ddl_bronze.sql
+          sql -d DataWarehouse -i /repo/scripts/bronze/proc_load_bronze.sql
+          sql -d DataWarehouse -Q "EXEC bronze.load_bronze @data_path = N'/repo/datasets';"
+          sql -d DataWarehouse -i /repo/scripts/silver/ddl_silver.sql
+          sql -d DataWarehouse -i /repo/scripts/silver/proc_load_silver.sql
+          sql -d DataWarehouse -Q "EXEC silver.load_silver;"
+          sql -d DataWarehouse -i /repo/scripts/gold/ddl_gold.sql
+
+      - name: Check the results
+        run: |
+          sql() { docker exec mssql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$SA_PASSWORD" -C -b "$@"; }
+          sql -d DataWarehouse -i /repo/tests/ci_assertions.sql
+          sql -d DataWarehouse -i /repo/tests/quality_checks_silver.sql -o /dev/null
+          sql -d DataWarehouse -i /repo/tests/quality_checks_gold.sql -o /dev/null

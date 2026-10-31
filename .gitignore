@@ -1,0 +1,14 @@
+# SQL Server Management Studio / Azure Data Studio
+*.ssmssqlproj
+*.sqlproj.user
+.vs/
+
+# Local settings and secrets
+.env
+.env.*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

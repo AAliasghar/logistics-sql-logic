@@ -111,12 +111,12 @@ BEGIN
         PRINT '>> Load Duration: ' + CAST(DATEDIFF(SECOND, @start_time, @end_time) AS NVARCHAR) + ' seconds';
         PRINT '>> -------------';
 
-        -- Loading crm_sales_details
+        -- Loading crm_shipments_lmc_details
         SET @start_time = GETDATE();
-		PRINT '>> Truncating Table: silver.crm_sales_details';
-		TRUNCATE TABLE silver.crm_sales_details;
-		PRINT '>> Inserting Data Into: silver.crm_sales_details';
-		INSERT INTO silver.crm_sales_details (
+		PRINT '>> Truncating Table: silver.crm_shipments_lmc_details';
+		TRUNCATE TABLE silver.crm_shipments_lmc_details;
+		PRINT '>> Inserting Data Into: silver.crm_shipments_lmc_details';
+		INSERT INTO silver.crm_shipments_lmc_details (
 			sls_ord_num,
 			sls_prd_key,
 			sls_cust_id,
@@ -125,7 +125,9 @@ BEGIN
 			sls_due_dt,
 			sls_sales,
 			sls_quantity,
-			sls_price
+			sls_price,
+			sls_surcharge,
+			sls_fuel
 		)
 		SELECT 
 			sls_ord_num,
@@ -153,8 +155,10 @@ BEGIN
 				WHEN sls_price IS NULL OR sls_price <= 0 
 					THEN sls_sales / NULLIF(sls_quantity, 0)
 				ELSE sls_price  -- Derive price if original value is invalid
-			END AS sls_price
-		FROM bronze.crm_sales_details;
+			END AS sls_price,
+			sls_surcharge,  -- only set on some shipments; NULL means no surcharge
+			sls_fuel
+		FROM bronze.crm_shipments_lmc_details;
         SET @end_time = GETDATE();
         PRINT '>> Load Duration: ' + CAST(DATEDIFF(SECOND, @start_time, @end_time) AS NVARCHAR) + ' seconds';
         PRINT '>> -------------';
@@ -244,10 +248,11 @@ BEGIN
 	END TRY
 	BEGIN CATCH
 		PRINT '=========================================='
-		PRINT 'ERROR OCCURED DURING LOADING BRONZE LAYER'
+		PRINT 'ERROR OCCURED DURING LOADING SILVER LAYER'
 		PRINT 'Error Message' + ERROR_MESSAGE();
 		PRINT 'Error Message' + CAST (ERROR_NUMBER() AS NVARCHAR);
 		PRINT 'Error Message' + CAST (ERROR_STATE() AS NVARCHAR);
 		PRINT '=========================================='
+		THROW; -- re-raise, so the caller (and CI) sees the load failed
 	END CATCH
 END

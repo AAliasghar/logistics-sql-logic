@@ -39,11 +39,11 @@ GROUP BY product_key
 HAVING COUNT(*) > 1;
 
 -- ====================================================================
--- Checking 'gold.fact_sales'
+-- Checking 'gold.fact_shipments'
 -- ====================================================================
 -- Check the data model connectivity between fact and dimensions
 SELECT * 
-FROM gold.fact_sales f
+FROM gold.fact_shipments f
 LEFT JOIN gold.dim_customers c
 ON c.customer_key = f.customer_key
 LEFT JOIN gold.dim_products p
