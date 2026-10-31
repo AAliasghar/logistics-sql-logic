@@ -1,0 +1,2 @@
+# BULK INSERT expects Windows line endings by default, also when CI checks the repo out on Linux
+*.csv text eol=crlf

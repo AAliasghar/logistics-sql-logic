@@ -9,6 +9,9 @@ Script Purpose:
 ===============================================================================
 */
 
+USE DataWarehouse;
+GO
+
 IF OBJECT_ID('bronze.crm_cust_info', 'U') IS NOT NULL
     DROP TABLE bronze.crm_cust_info;
 GO
@@ -39,11 +42,11 @@ CREATE TABLE bronze.crm_prd_info (
 );
 GO
 
-IF OBJECT_ID('bronze.crm_sales_details', 'U') IS NOT NULL
-    DROP TABLE bronze.crm_sales_details;
+IF OBJECT_ID('bronze.crm_shipments_lmc_details', 'U') IS NOT NULL
+    DROP TABLE bronze.crm_shipments_lmc_details;
 GO
 
-CREATE TABLE bronze.crm_sales_details (
+CREATE TABLE bronze.crm_shipments_lmc_details (
     sls_ord_num  NVARCHAR(50),
     sls_prd_key  NVARCHAR(50),
     sls_cust_id  INT,
@@ -52,7 +55,9 @@ CREATE TABLE bronze.crm_sales_details (
     sls_due_dt   INT,
     sls_sales    INT,
     sls_quantity INT,
-    sls_price    INT
+    sls_price    INT,
+    sls_surcharge DECIMAL(10,2),
+    sls_fuel      DECIMAL(10,2)
 );
 GO
 

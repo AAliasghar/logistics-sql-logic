@@ -42,11 +42,11 @@ CREATE TABLE silver.crm_prd_info (
 );
 GO
 
-IF OBJECT_ID('silver.crm_sales_details', 'U') IS NOT NULL
-    DROP TABLE silver.crm_sales_details;
+IF OBJECT_ID('silver.crm_shipments_lmc_details', 'U') IS NOT NULL
+    DROP TABLE silver.crm_shipments_lmc_details;
 GO
 
-CREATE TABLE silver.crm_sales_details (
+CREATE TABLE silver.crm_shipments_lmc_details (
     sls_ord_num     NVARCHAR(50),
     sls_prd_key     NVARCHAR(50),
     sls_cust_id     INT,
@@ -56,6 +56,8 @@ CREATE TABLE silver.crm_sales_details (
     sls_sales       INT,
     sls_quantity    INT,
     sls_price       INT,
+    sls_surcharge   DECIMAL(10,2),
+    sls_fuel        DECIMAL(10,2),
     dwh_create_date DATETIME2 DEFAULT GETDATE()
 );
 GO
