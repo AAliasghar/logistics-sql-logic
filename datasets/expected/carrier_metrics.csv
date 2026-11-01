@@ -1,0 +1,5 @@
+carrier_code,shipments,delivered,on_time,returned,failed_attempts
+MTP,4989,4939,3965,50,324
+NLP,6046,5983,5282,63,356
+SWC,5958,5895,4875,63,367
+VLF,3007,2972,2254,35,180

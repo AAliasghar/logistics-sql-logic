@@ -1,0 +1,5 @@
+zone_code,zone_name,standard_transit_days
+URB,Urban,1
+SUB,Suburban,2
+RUR,Rural,3
+REM,Remote,4

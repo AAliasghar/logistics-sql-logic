@@ -7,8 +7,8 @@ on:
     branches: [ main ]
 
 jobs:
-  pipeline:
-    name: Run the warehouse in SQL Server
+  build:
+    name: Generate data and build the warehouse in SQL Server
     runs-on: ubuntu-latest
     env:
       SA_PASSWORD: CiOnly_Passw0rd!   # throwaway container, only exists during this job
@@ -16,6 +16,28 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"   # the minimum the generator supports
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Test the generator
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+          pytest -q
+
+      - name: Committed data must match the generator
+        run: |
+          python generator/generate_data.py
+          if [ -n "$(git status --porcelain -- datasets)" ]; then
+            git status --short -- datasets
+            echo "datasets/ differs from what generator/generate_data.py writes (seed 42). Regenerate and commit."
+            exit 1
+          fi
 
       - name: Start SQL Server 2022
         run: |
@@ -34,18 +56,21 @@ jobs:
       - name: Build bronze, silver and gold
         run: |
           sql() { docker exec mssql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$SA_PASSWORD" -C -b "$@"; }
-          sql -i /repo/scripts/init_database.sql
-          sql -d DataWarehouse -i /repo/scripts/bronze/ddl_bronze.sql
-          sql -d DataWarehouse -i /repo/scripts/bronze/proc_load_bronze.sql
-          sql -d DataWarehouse -Q "EXEC bronze.load_bronze @data_path = N'/repo/datasets';"
-          sql -d DataWarehouse -i /repo/scripts/silver/ddl_silver.sql
-          sql -d DataWarehouse -i /repo/scripts/silver/proc_load_silver.sql
-          sql -d DataWarehouse -Q "EXEC silver.load_silver;"
-          sql -d DataWarehouse -i /repo/scripts/gold/ddl_gold.sql
+          sql -i /repo/scripts/database.sql
+          sql -d LogisticsDW -i /repo/scripts/bronze/bronze.sql
+          sql -d LogisticsDW -i /repo/scripts/silver/silver.sql
+          sql -d LogisticsDW -i /repo/scripts/gold/gold.sql
+          # Loaded twice on purpose: a second run must not duplicate anything.
+          # The trailing slash on the path is on purpose too.
+          for run in 1 2; do
+            sql -d LogisticsDW -Q "EXEC bronze.load_bronze @data_path = N'/repo/datasets/';"
+            sql -d LogisticsDW -Q "EXEC silver.load_silver;"
+          done
 
       - name: Check the results
         run: |
           sql() { docker exec mssql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$SA_PASSWORD" -C -b "$@"; }
-          sql -d DataWarehouse -i /repo/tests/ci_assertions.sql
-          sql -d DataWarehouse -i /repo/tests/quality_checks_silver.sql -o /dev/null
-          sql -d DataWarehouse -i /repo/tests/quality_checks_gold.sql -o /dev/null
+          sql -d LogisticsDW -v DataPath=/repo/datasets -i /repo/tests/ci_assertions.sql
+          sql -d LogisticsDW -i /repo/tests/quality_checks_silver.sql -o /dev/null
+          sql -d LogisticsDW -i /repo/tests/quality_checks_gold.sql -o /dev/null
+          sql -d LogisticsDW -Q "SELECT TOP 8 carrier_code, zone_code, ship_month, shipments, on_time_pct FROM gold.rpt_carrier_performance ORDER BY ship_month DESC, carrier_code, zone_code;"
