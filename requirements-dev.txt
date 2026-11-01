@@ -1,0 +1,2 @@
+# What CI needs to run the generator tests. The generator itself uses only the standard library.
+pytest>=8.0

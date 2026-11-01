@@ -1,51 +1,31 @@
-/*
-===============================================================================
-Quality Checks
-===============================================================================
-Script Purpose:
-    This script performs quality checks to validate the integrity, consistency, 
-    and accuracy of the Gold Layer. These checks ensure:
-    - Uniqueness of surrogate keys in dimension tables.
-    - Referential integrity between fact and dimension tables.
-    - Validation of relationships in the data model for analytical purposes.
+-- Checks to read by hand after gold.sql. Every query should return no rows.
 
-Usage Notes:
-    - Investigate and resolve any discrepancies found during the checks.
-===============================================================================
-*/
+-- Delivered before it was shipped
+SELECT shipment_id, ship_date, delivered_date
+FROM gold.fact_shipments
+WHERE delivered_date < ship_date;
 
--- ====================================================================
--- Checking 'gold.dim_customers'
--- ====================================================================
--- Check for Uniqueness of Customer Key in gold.dim_customers
--- Expectation: No results 
-SELECT 
-    customer_key,
-    COUNT(*) AS duplicate_count
-FROM gold.dim_customers
-GROUP BY customer_key
-HAVING COUNT(*) > 1;
+-- Counted as on time but not delivered
+SELECT shipment_id, final_status, is_on_time
+FROM gold.fact_shipments
+WHERE is_on_time = 1 AND final_status <> N'DELIVERED';
 
--- ====================================================================
--- Checking 'gold.product_key'
--- ====================================================================
--- Check for Uniqueness of Product Key in gold.dim_products
--- Expectation: No results 
-SELECT 
-    product_key,
-    COUNT(*) AS duplicate_count
-FROM gold.dim_products
-GROUP BY product_key
-HAVING COUNT(*) > 1;
+-- More failed attempts than attempts
+SELECT shipment_id, attempts, failed_attempts
+FROM gold.fact_shipments
+WHERE failed_attempts > attempts;
 
--- ====================================================================
--- Checking 'gold.fact_shipments'
--- ====================================================================
--- Check the data model connectivity between fact and dimensions
-SELECT * 
-FROM gold.fact_shipments f
-LEFT JOIN gold.dim_customers c
-ON c.customer_key = f.customer_key
-LEFT JOIN gold.dim_products p
-ON p.product_key = f.product_key
-WHERE p.product_key IS NULL OR c.customer_key IS NULL  
+-- Fact rows whose customer, carrier or zone is missing from the dimensions
+SELECT f.shipment_id
+FROM gold.fact_shipments AS f
+LEFT JOIN gold.dim_customers AS c ON c.customer_id = f.customer_id
+LEFT JOIN gold.dim_carriers AS k ON k.carrier_code = f.carrier_code
+LEFT JOIN gold.dim_zones AS z ON z.zone_code = f.zone_code
+WHERE c.customer_id IS NULL OR k.carrier_code IS NULL OR z.zone_code IS NULL;
+
+-- Report percentages outside 0-100
+SELECT carrier_code, zone_code, ship_month, on_time_pct, failed_attempt_pct, return_pct
+FROM gold.rpt_carrier_performance
+WHERE on_time_pct NOT BETWEEN 0 AND 100
+   OR failed_attempt_pct NOT BETWEEN 0 AND 100
+   OR return_pct NOT BETWEEN 0 AND 100;

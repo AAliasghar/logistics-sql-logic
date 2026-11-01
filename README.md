@@ -1,103 +1,115 @@
-# Logistics SQL Warehouse (T-SQL, Bronze / Silver / Gold)
+# Logistics SQL Warehouse: Carrier Delivery Performance
 
 [![CI](https://github.com/AAliasghar/logistics-sql-logic/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AAliasghar/logistics-sql-logic/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-A SQL Server data warehouse built in three layers (**bronze → silver → gold**) from CSV exports of two source systems (a CRM and an ERP). The gold layer is a small star schema: customers, products and a shipment fact table with fuel and surcharge costs.
+A SQL Server data warehouse in T-SQL (**bronze → silver → gold**) that measures how well parcel carriers deliver: on-time rate, transit days, failed delivery attempts and returns, per carrier, zone and month.
 
-> **Status:** learning project. The warehouse structure and the customer/product/order data come from the well-known *SQL Data Warehouse Project* tutorial by Data with Baraa (based on Microsoft's AdventureWorks sample data). My extension is the shipment cost logic: fuel and surcharge columns carried from the source file through silver into the gold fact table, with a net amount per order line. All data is public sample data.
+The data is **synthetic**: a Python generator in this repo creates customers, carriers, zones, 20,000 shipments and their tracking events, with some deliberately messy records for the warehouse to clean. Every name and number is invented.
 
 ---
 
-## What's inside
+## Results (committed data, seed 42)
 
-| Layer | Objects | What happens |
+| Carrier | Shipments | On time | Returned | Failed delivery attempts |
+|---|--:|--:|--:|--:|
+| NLP NorthLine Parcel | 6,046 | 87.4% | 63 | 356 |
+| SWC Swift Courier | 5,958 | 81.8% | 63 | 367 |
+| MTP MetroPost | 4,989 | 79.5% | 50 | 324 |
+| VLF Valley Freight | 3,007 | 75.0% | 35 | 180 |
+
+CI builds the warehouse from the CSV files and checks that these counts come out of `gold.fact_shipments` exactly, after all the cleaning.
+
+---
+
+## The data
+
+`generator/generate_data.py` (Python standard library only) writes:
+
+| File | Rows | Content |
+|---|--:|---|
+| `datasets/source_crm/customers.csv` | 300 | customer id, name, segment (webshop / B2B), region |
+| `datasets/source_tms/carriers.csv` | 4 | carrier code and name |
+| `datasets/source_tms/zones.csv` | 4 | urban, suburban, rural, remote, with standard transit days |
+| `datasets/source_tms/shipments.csv` | 20,000 | customer, carrier, service level, zone, weight, ship date, promised date (2024–2025) |
+| `datasets/source_tms/tracking_events.csv` | 83,065 | picked up → in transit → out for delivery → delivered / delivery failed → returned |
+| `datasets/expected/carrier_metrics.csv` | 4 | the generator's own per-carrier counts, used by CI |
+
+**How deliveries behave:** each carrier has its own on-time rate; deliveries are slower in November–December and to remote zones; about 5% of first attempts fail and get a second attempt the next day; if that fails too, the parcel is returned.
+
+**Deliberately messy records:** duplicate tracking events (1%), event types in mixed case or with extra spaces (3%), lower-case carrier codes (2%), blank weights (1%), customer names with extra spaces (2%).
+
+Regenerate (the committed files use seed 42; CI fails if they don't match):
+
+```bash
+python generator/generate_data.py            # writes datasets/
+python generator/generate_data.py --seed 7   # different data, same shape (don't commit it)
+```
+
+---
+
+## The warehouse
+
+| Layer | File | What happens |
 |---|---|---|
-| **Bronze** | 6 tables, `bronze.load_bronze` | CSVs loaded as they are with `BULK INSERT` |
-| **Silver** | 6 tables, `silver.load_silver` | Cleaning: trimmed names, standardised codes (gender, marital status, country, product line), invalid dates set to NULL, sales recalculated where `sales ≠ quantity × price`, latest record per customer |
-| **Gold** | 3 views | `dim_customers` (CRM + ERP merged), `dim_products` (current products with category), `fact_shipments` |
+| Bronze | `scripts/bronze/bronze.sql` | Five tables, loaded from the CSVs as they are with `BULK INSERT` |
+| Silver | `scripts/silver/silver.sql` | Trims text, upper-cases codes, converts event times, removes duplicate events (after normalising them) |
+| Gold | `scripts/gold/gold.sql` | Views for reporting (below) |
 
-`gold.fact_shipments` has one row per order line:
+| Gold view | One row per | Content |
+|---|---|---|
+| `dim_customers`, `dim_carriers`, `dim_zones` | customer / carrier / zone | descriptive columns |
+| `fact_shipments` | shipment | promised date, first attempt, delivered date, attempts, failed attempts, final status, transit days, on time yes/no |
+| `rpt_carrier_performance` | carrier × zone × month | shipments, on-time %, average transit days, failed-attempt %, return % |
 
-| Column | Meaning |
-|---|---|
-| `order_number`, `product_key`, `customer_key` | Order line and its dimensions |
-| `order_date`, `shipping_date`, `due_date` | Dates |
-| `sales_amount`, `quantity`, `price` | Revenue |
-| `fuel_cost` | Fuel cost of the shipment (about 5% of sales in this data) |
-| `surcharge` | Extra charge, set on a few shipments only (empty = none) |
-| `net_amount` | `sales_amount − fuel_cost − surcharge` (empty values count as 0) |
-
-## Data
-
-`datasets/` holds the source files (about 116,000 rows):
-
-| Source | File | Rows |
-|---|---|--:|
-| CRM | `source_crm/cust_info.csv` | 18,494 |
-| CRM | `source_crm/prd_info.csv` | 397 |
-| CRM | `source_crm/shipments_lmc_details.csv` (sales order lines + `sls_surcharge`, `sls_Fuel`) | 60,398 |
-| ERP | `source_erp/CUST_AZ12.csv` | 18,484 |
-| ERP | `source_erp/LOC_A101.csv` | 18,484 |
-| ERP | `source_erp/PX_CAT_G1V2.csv` | 37 |
-
-The fuel and surcharge columns are synthetic additions to the tutorial's sales file.
+A shipment's final status comes from its latest tracking event (`ROW_NUMBER()` per shipment). It counts as **on time** when it was delivered (not returned) on or before the promised date.
 
 ---
 
 ## Run it
 
-**Requirements:** SQL Server 2017 or later (Developer or Express edition is fine) and SSMS, Azure Data Studio or `sqlcmd`.
+**Requirements:** SQL Server 2017 or later (Developer or Express edition is fine), plus SSMS, Azure Data Studio or `sqlcmd`.
 
-> `scripts/init_database.sql` **drops and recreates** a database called `DataWarehouse`.
+> `scripts/database.sql` **drops and recreates** the database `LogisticsDW`.
 
-Run the scripts in this order:
+Run in this order:
 
 ```sql
--- 1. Database and schemas
-:r scripts/init_database.sql
+:r scripts/database.sql
+USE LogisticsDW;
+:r scripts/bronze/bronze.sql
+:r scripts/silver/silver.sql
+:r scripts/gold/gold.sql
 
--- 2. Bronze: tables, load procedure, load
-:r scripts/bronze/ddl_bronze.sql
-:r scripts/bronze/proc_load_bronze.sql
 EXEC bronze.load_bronze @data_path = N'C:\path\to\logistics-sql-logic\datasets';
-
--- 3. Silver
-:r scripts/silver/ddl_silver.sql
-:r scripts/silver/proc_load_silver.sql
 EXEC silver.load_silver;
-
--- 4. Gold
-:r scripts/gold/ddl_gold.sql
 ```
 
-(`:r` works in SQLCMD mode; in SSMS you can also open each file and run it.)
+`:r` needs SQLCMD mode; in SSMS you can also open and run each file. `@data_path` is the `datasets` folder **as the SQL Server machine sees it** (for SQL Server in Docker, mount the folder and use the container path, as CI does).
 
-`@data_path` is the `datasets` folder **as the SQL Server machine sees it**. With SQL Server in Docker, mount the folder into the container and use the container path, as the CI workflow does.
-
-Example query: net amount by year and product category.
+On-time rate per carrier in 2025:
 
 ```sql
 SELECT
-    YEAR(f.order_date)  AS order_year,
-    p.category,
-    SUM(f.sales_amount) AS sales,
-    SUM(f.fuel_cost)    AS fuel,
-    SUM(f.net_amount)   AS net
-FROM gold.fact_shipments f
-JOIN gold.dim_products p ON p.product_key = f.product_key
-GROUP BY YEAR(f.order_date), p.category
-ORDER BY order_year, net DESC;
+    c.carrier_name,
+    COUNT(*) AS shipments,
+    CAST(100.0 * SUM(f.is_on_time) / COUNT(*) AS DECIMAL(5, 1)) AS on_time_pct
+FROM gold.fact_shipments AS f
+JOIN gold.dim_carriers AS c ON c.carrier_code = f.carrier_code
+WHERE f.ship_date >= '2025-01-01'
+GROUP BY c.carrier_name
+ORDER BY on_time_pct DESC;
 ```
 
 ---
 
-## Tests
+## Tests and CI
 
-- `tests/quality_checks_silver.sql`, `tests/quality_checks_gold.sql`: checks to read by hand (each query should return no rows): duplicates, unwanted spaces, invalid dates, `sales = quantity × price`, fact-to-dimension links.
-- `tests/ci_assertions.sql`: stops with an error if the output is wrong (empty tables, missing shipment rows, fuel decimals lost, wrong `net_amount`).
+- `tests/test_generator.py` (pytest): the same seed gives identical files; every shipment points to a real customer, carrier and zone; every shipment ends delivered or returned; event times always move forward; on-time rates are plausible; files are CRLF and ASCII; the messy-record shares are close to their targets.
+- `tests/ci_assertions.sql`: stops with an error if a shipment is missing from gold, a duplicate event reaches silver, a shipment has no final status, or the per-carrier counts differ from `datasets/expected/carrier_metrics.csv`.
+- `tests/quality_checks_silver.sql`, `tests/quality_checks_gold.sql`: checks to read by hand; each query should return no rows.
 
-**CI** (`.github/workflows/ci.yml`) starts SQL Server 2022 in Docker on every push and pull request, builds all three layers from the CSVs and runs the checks above.
+**CI** (`.github/workflows/ci.yml`) runs on pushes to `main` and on pull requests into `main`: generator tests, a check that the committed data matches the generator, then SQL Server 2022 in Docker builds all three layers (loading twice, to prove a rerun adds no duplicates) and runs `ci_assertions.sql`. The two quality-check scripts also run there, but only to prove they work; their results are meant to be read by hand.
 
 ---
 
@@ -105,15 +117,14 @@ ORDER BY order_year, net DESC;
 
 ```
 logistics-sql-logic/
-├── datasets/
-│   ├── source_crm/          # customers, products, shipment order lines
-│   └── source_erp/          # customer birthdates/gender, locations, product categories
+├── generator/generate_data.py   # synthetic data generator
+├── datasets/                    # generated CSVs (committed)
 ├── scripts/
-│   ├── init_database.sql    # DataWarehouse database + bronze/silver/gold schemas
-│   ├── bronze/              # ddl_bronze.sql, proc_load_bronze.sql
-│   ├── silver/              # ddl_silver.sql, proc_load_silver.sql
-│   └── gold/                # ddl_gold.sql (views)
-├── tests/                   # quality checks + CI assertions
+│   ├── database.sql             # LogisticsDW + bronze/silver/gold schemas
+│   ├── bronze/bronze.sql
+│   ├── silver/silver.sql
+│   └── gold/gold.sql
+├── tests/                       # pytest + SQL checks
 ├── .github/workflows/ci.yml
 └── LICENSE
 ```
@@ -122,8 +133,7 @@ logistics-sql-logic/
 
 ## Roadmap
 
-- [ ] Replace the tutorial data with a generated shipments dataset (carriers, rate cards, weights, zones) so the cost logic is realistic, not a fixed share of sales
-- [ ] Carrier rate-card table and a cost-per-shipment calculation
+- [ ] Shipping costs: carrier rate cards by weight and zone, cost per shipment and per carrier
 - [ ] `sqlfluff` style checks in CI
 
 ---
