@@ -47,6 +47,7 @@ IF (
     SELECT COUNT(*) FROM silver.tms_tracking_events
     WHERE event_type COLLATE Latin1_General_CS_AS <> UPPER(event_type)
        OR DATALENGTH(event_type) <> DATALENGTH(TRIM(event_type))
+       OR event_type LIKE N'%' + NCHAR(13) + N'%'  -- a line-ending character left over from the file
 ) > 0
     THROW 50007, 'silver.tms_tracking_events has event types that are not clean upper case', 1;
 

@@ -56,7 +56,8 @@ BEGIN
         N'TRUNCATE TABLE ' + @target + N'; '
         + N'BULK INSERT ' + @target
         + N' FROM ''' + REPLACE(@file, N'''', N'''''') + N''''
-        + N' WITH (FIRSTROW = 2, FIELDTERMINATOR = '','', TABLOCK);';
+        -- Row terminator spelled out as CRLF (0x0d0a): the default means CRLF on Windows but only LF on Linux
+        + N' WITH (FIRSTROW = 2, FIELDTERMINATOR = '','', ROWTERMINATOR = ''0x0d0a'', TABLOCK);';
     EXEC sys.sp_executesql @sql;
 
     DECLARE @rows INT;
