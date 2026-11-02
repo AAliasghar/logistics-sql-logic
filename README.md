@@ -144,4 +144,4 @@ MIT. See [LICENSE](LICENSE).
 
 ## Author
 
-[AAliasghar](https://github.com/AAliasghar) · [Open an issue](https://github.com/AAliasghar/logistics-sql-logic/issues)
+Aliasghar Asgharinia ([@AAliasghar](https://github.com/AAliasghar)) · [Open an issue](https://github.com/AAliasghar/logistics-sql-logic/issues)
